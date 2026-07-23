@@ -1,112 +1,132 @@
-const { default: makeWASocket, useMultiFileAuthState } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { GoogleGenAI } = require('@google/genai');
 const qrcode = require('qrcode-terminal');
+const http = require('http');
 
+// IDs do Google Docs e Sheets do Nany's Coffee Break
 const ID_PLANILHA = "1Dlw54YOcyDhd_32qyVdjCWFvHRmCbTTyK5e9Re9SVs"; 
 const ID_DOCS = "1O_669rGMid1xbe7wTpxZkQBgrMs2TRzJGbJUJNJA6Fc";
 
+// Chave da IA injetada secretamente pelo Render
 const GEMINI_KEY = process.env.GEMINI_API_KEY; 
 const ai = new GoogleGenAI({ apiKey: GEMINI_KEY });
 
-// Aqui criamos o cérebro do François para ele lembrar da conversa com cada cliente
+// Memória de curto prazo para as conversas do François
 const memoriaClientes = {};
 
-async function conectarWhatsapp() {
-    const { state, saveCreds } = await useMultiFileAuthState('./session');
-    
-    const sock = makeWASocket({
-        auth: state,
-        printQRInTerminal: false
-    });
+async function startBot() {
+    // Puxa a versão mais recente do WhatsApp para evitar quedas de conexão
+    const { version } = await fetchLatestBaileysVersion();
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update;
-        if(qr) {
-            console.log("=== ESCANEIE ESTE QR CODE NO SEU WHATSAPP ===");
-            qrcode.generate(qr, { small: true });
-        }
-        if(connection === 'close') {
-            console.log("Conexão fechada. Tentando reconectar...");
-            conectarWhatsapp();
-        }
+    const sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: true,
+        browser: ["Ubuntu", "Chrome", "22.04.4"]
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('messages.upsert', async m => {
+    // Gerenciador de conexão
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            console.log('🤖 Escaneie o QR Code abaixo com o seu WhatsApp:');
+        }
+
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== 401;
+            console.log('Conexão fechada. Tentando reconectar...', shouldReconnect);
+            if (shouldReconnect) {
+                startBot();
+            } else {
+                console.log('Conexão recusada. Apague a pasta auth_info e gere o QR Code novamente.');
+            }
+        } else if (connection === 'open') {
+            console.log('✅ François conectado com sucesso ao WhatsApp!');
+        }
+    });
+
+    // O coração do atendimento: Mensagens do WhatsApp
+    sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
-        if (!msg.key.fromMe && msg.message) {
-            const textoCliente = msg.message.conversation || msg.message.extendedTextMessage?.text;
+        if (!msg.message || msg.key.fromMe) return;
+
+        const remoteJid = msg.key.remoteJid;
+        const numeroWhatsApp = remoteJid.replace('@s.whatsapp.net', '');
+        const textoCliente = msg.message.conversation || msg.message.extendedTextMessage?.text;
+
+        if (!textoCliente) return;
+
+        // Inicializa a memória do cliente se for a primeira mensagem
+        if (!memoriaClientes[numeroWhatsApp]) {
+            memoriaClientes[numeroWhatsApp] = [];
+        }
+
+        memoriaClientes[numeroWhatsApp].push(`Cliente: ${textoCliente}`);
+        if (memoriaClientes[numeroWhatsApp].length > 10) {
+            memoriaClientes[numeroWhatsApp].shift();
+        }
+
+        try {
+            // 1. Lê as diretrizes de atendimento no Google Docs
+            const resDocs = await fetch(`https://docs.google.com/document/d/${ID_DOCS}/export?format=txt`);
+            const regrasNegocio = await resDocs.text();
+
+            // 2. Lê a planilha de clientes e produtos (CSV)
+            const resSheets = await fetch(`https://docs.google.com/spreadsheets/d/${ID_PLANILHA}/export?format=csv`);
+            const dadosPlanilha = await resSheets.text();
             
-            // Pegamos o número do WhatsApp do cliente (Ex: 5511999999999)
-            const numeroWhatsApp = msg.key.remoteJid.replace('@s.whatsapp.net', ''); 
+            const historicoChat = memoriaClientes[numeroWhatsApp].join('\n');
+            
+            // 3. Monta o prompt completo para o Gemini agir como François
+            const promptCompleto = `
+            Você é François, o atendente virtual do Nany's Coffee Break. Você age como um garçom e concierge de alto nível, acolhedor e humanizado.
+            
+            DIRETRIZES DO DOCS:
+            ${regrasNegocio}
+            
+            DADOS DOS CLIENTES E PRODUTOS (Planilha):
+            ${dadosPlanilha}
+            
+            NÚMERO DO WHATSAPP DESTE CLIENTE: ${numeroWhatsApp}
+            
+            INSTRUÇÕES:
+            1. Verifique nos DADOS DOS CLIENTES se o número ${numeroWhatsApp} já existe.
+            2. SE EXISTIR: Trate-o pelo nome e seja caloroso.
+            3. SE NÃO EXISTIR: Dê as boas-vindas e converse de forma fluida para coletar o CPF e Nome, um dado por vez, sem telas chatas. Nunca peça senha.
+            
+            HISTÓRICO DA CONVERSA:
+            ${historicoChat}
+            
+            Responda agora ao cliente (apenas a fala do François, sem colocar "François:" no início):
+            `;
+            
+            const response = await ai.models.generateContent({
+                model: 'gemini-1.5-flash',
+                contents: promptCompleto,
+            });
 
-            if (!textoCliente) return;
+            const respostaIA = response.text;
 
-            // Cria uma memória para o cliente se for a primeira mensagem do dia
-            if (!memoriaClientes[numeroWhatsApp]) {
-                memoriaClientes[numeroWhatsApp] = [];
-            }
+            memoriaClientes[numeroWhatsApp].push(`François: ${respostaIA}`);
 
-            // Adiciona a mensagem do cliente na memória
-            memoriaClientes[numeroWhatsApp].push(`Cliente: ${textoCliente}`);
+            await sock.sendMessage(remoteJid, { text: respostaIA });
 
-            // Mantém apenas as últimas 10 mensagens para o François não ficar confuso
-            if (memoriaClientes[numeroWhatsApp].length > 10) {
-                memoriaClientes[numeroWhatsApp].shift();
-            }
-
-            try {
-                const resDocs = await fetch(`https://docs.google.com/document/d/${ID_DOCS}/export?format=txt`);
-                const regrasNegocio = await resDocs.text();
-
-                const resSheets = await fetch(`https://docs.google.com/spreadsheets/d/${ID_PLANILHA}/export?format=csv`);
-                const dadosPlanilha = await resSheets.text();
-                
-                // Pega o histórico da conversa
-                const historicoChat = memoriaClientes[numeroWhatsApp].join('\n');
-                
-                // O SUPER PROMPT: Aqui damos a vida e a personalidade ao François
-                const promptCompleto = `
-                Você é François, o atendente virtual do Nany's Coffee Break. Você age como um garçom e concierge de alto nível, acolhedor e humanizado. 
-                Sua missão é dar um atendimento sem atritos, sem parecer um robô de botões.
-                
-                REGRAS DO NEGÓCIO:
-                ${regrasNegocio}
-                
-                DADOS DOS CLIENTES E ESTOQUE (Planilha):
-                ${dadosPlanilha}
-                
-                NÚMERO DO WHATSAPP DESTE CLIENTE: ${numeroWhatsApp}
-                
-                INSTRUÇÕES ESPECÍFICAS DE ATENDIMENTO:
-                1. Verifique nos DADOS DOS CLIENTES se o número ${numeroWhatsApp} já existe.
-                2. SE EXISTIR: Trate-o pelo nome, seja caloroso e pergunte como pode ajudar hoje.
-                3. SE NÃO EXISTIR: Assuma que é um cliente novo. Dê as boas-vindas e converse de forma fluida para coletar o CPF, Nome e Email. Peça um dado por vez, de forma natural, como se estivesse conversando balcão. Nunca peça senha, o número do WhatsApp já é a identificação dele!
-                
-                HISTÓRICO RECENTE DESTA CONVERSA:
-                ${historicoChat}
-                
-                Responda agora ao cliente (apenas a fala do François, sem colocar "François:" no início):
-                `;
-                
-                const response = await ai.models.generateContent({
-                    model: 'gemini-1.5-flash',
-                    contents: promptCompleto,
-                });
-
-                const respostaIA = response.text;
-
-                // Adiciona a resposta do François na memória para ele lembrar depois
-                memoriaClientes[numeroWhatsApp].push(`François: ${respostaIA}`);
-
-                await sock.sendMessage(msg.key.remoteJid, { text: respostaIA });
-
-            } catch (err) {
-                console.error("Erro ao processar mensagem:", err);
-            }
+        } catch (err) {
+            console.error("Erro ao processar mensagem com a IA:", err);
         }
     });
 }
 
-conectarWhatsapp();
+// 🌐 Servidor web de fachada obrigatório para o Render manter o bot online
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.end("François do Nany's Coffee Break rodando com sucesso!");
+}).listen(PORT, () => {
+    console.log(`🌐 Servidor web de fachada rodando na porta ${PORT}`);
+});
+
+startBot();
