@@ -34,6 +34,7 @@ async function startBot() {
         
         if (qr) {
             console.log('🤖 Escaneie o QR Code abaixo com o seu WhatsApp:');
+            qrcode.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
