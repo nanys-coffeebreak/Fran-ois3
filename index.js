@@ -13,7 +13,6 @@ const ai = new GoogleGenAI({ apiKey: GEMINI_KEY });
 // Memória de curto prazo para as conversas do François
 const memoriaClientes = {};
 
-// Variável para guardar o QR Code atual e exibir no navegador
 let qrAtual = '';
 
 async function startBot() {
@@ -23,7 +22,7 @@ async function startBot() {
     const sock = makeWASocket({
         version,
         auth: state,
-        printQRInTerminal: false, // Desativado no terminal para evitar distorção
+        printQRInTerminal: false,
         browser: ["Ubuntu", "Chrome", "22.04.4"]
     });
 
@@ -33,8 +32,8 @@ async function startBot() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
-            qrAtual = qr; // Salva o QR Code para a página web
-            console.log('🤖 QR Code gerado! Acesse https://fran-ois3.onrender.com no seu navegador para escanear.');
+            qrAtual = qr;
+            console.log('🤖 Novo QR Code gerado. Acesse a URL do Render para escanear se precisar.');
         }
 
         if (connection === 'close') {
@@ -46,8 +45,8 @@ async function startBot() {
                 console.log('Conexão recusada. Apague a pasta auth_info e gere o QR Code novamente.');
             }
         } else if (connection === 'open') {
-            qrAtual = ''; // Limpa o QR Code após conectar
-            console.log('✅ François conectado com sucesso ao WhatsApp!');
+            qrAtual = '';
+            console.log('✅ François conectado com sucesso ao WhatsApp e pronto para atender!');
         }
     });
 
@@ -59,6 +58,8 @@ async function startBot() {
         const remoteJid = msg.key.remoteJid;
         const numeroWhatsApp = remoteJid.replace('@s.whatsapp.net', '');
         const textoCliente = msg.message.conversation || msg.message.extendedTextMessage?.text;
+
+        console.log(`📩 Mensagem recebida de ${numeroWhatsApp}: ${textoCliente || '[Outro tipo de mensagem]'}`);
 
         if (!textoCliente) return;
 
@@ -72,6 +73,7 @@ async function startBot() {
         }
 
         try {
+            console.log('📄 Buscando diretrizes no Docs e dados na Planilha...');
             const resDocs = await fetch(`https://docs.google.com/document/d/${ID_DOCS}/export?format=txt`);
             const regrasNegocio = await resDocs.text();
 
@@ -102,24 +104,27 @@ async function startBot() {
             Responda agora ao cliente (apenas a fala do François, sem colocar "François:" no início):
             `;
             
+            console.log('🤖 Gerando resposta com o Gemini...');
             const response = await ai.models.generateContent({
                 model: 'gemini-1.5-flash',
                 contents: promptCompleto,
             });
 
             const respostaIA = response.text;
+            console.log(`📤 Enviando resposta para ${numeroWhatsApp}: ${respostaIA}`);
 
             memoriaClientes[numeroWhatsApp].push(`François: ${respostaIA}`);
-
             await sock.sendMessage(remoteJid, { text: respostaIA });
 
         } catch (err) {
-            console.error("Erro ao processar mensagem com a IA:", err);
+            console.error("❌ Erro detalhado ao processar mensagem com a IA:", err);
+            // Mensagem de segurança para o bot nunca ficar mudo
+            await sock.sendMessage(remoteJid, { text: "Olá! Sou o François, o assistente do Nany's Coffee Break. Tive um pequeno soluço técnico aqui, mas já estou ajustando. Como posso te ajudar?" });
         }
     });
 }
 
-// 🌐 Servidor web que exibe o QR Code perfeitamente no navegador
+// 🌐 Servidor web de fachada
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -131,7 +136,6 @@ http.createServer((req, res) => {
                     <h2>🤖 Escaneie o QR Code abaixo com o WhatsApp do Nany's</h2>
                     <br>
                     <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrAtual)}" alt="QR Code WhatsApp" style="border: 5px solid #fff; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border-radius: 10px;"/>
-                    <p style="margin-top:20px; color:#666;">Abra o WhatsApp do seu celular > Aparelhos Conectados > Conectar um aparelho.</p>
                 </body>
             </html>
         `);
@@ -139,8 +143,7 @@ http.createServer((req, res) => {
         res.end(`
             <html>
                 <body style="text-align:center; font-family:sans-serif; margin-top:50px;">
-                    <h2>✅ François já está conectado ou inicializando!</h2>
-                    <p>Se o bot estiver online, esta página ficará assim. Verifique os logs no Render.</p>
+                    <h2>✅ François já está conectado e operando!</h2>
                 </body>
             </html>
         `);
