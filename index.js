@@ -123,9 +123,9 @@ Responda ao cliente (apenas a fala do François, sem prefixos):
 `;
             
             const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: promptCompleto,
-            });
+    model: 'gemini-1.5-flash',
+    contents: promptCompleto,
+});
 
             const respostaIA = response.text || "Peço desculpas, tive uma breve hesitação. Como posso servi-lo?";
 
