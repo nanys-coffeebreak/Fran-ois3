@@ -13,19 +13,4 @@
   "engines": {
     "node": ">=18.0.0"
   }
-}{
-  "name": "francois-bot",
-  "version": "1.0.0",
-  "description": "Assistente Virtual François - Nany's Coffee Break",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "@google/genai": "^0.1.1",
-    "@whiskeysockets/baileys": "^6.7.9"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
 }
