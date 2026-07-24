@@ -3,8 +3,8 @@ const { GoogleGenAI } = require('@google/genai');
 const http = require('http');
 
 // IDs do Google Docs e Sheets do Nany's Coffee Break
-const ID_PLANILHA = "1Dlw54YOcYDhd_32qyVdjCWFvHRrnCbTTyK5e9Re9SVs"; 
-const ID_DOCS = "1669rGMid1xbe7wTpxZkQBgrMs2TRzjGbJUJNJA6FcO-";
+const ID_PLANILHA = "1Dlw54YOcyDhd_32qyVdjCWFvHRmCbTTyK5e9Re9SVs"; 
+const ID_DOCS = "1O_669rGMid1xbe7wTpxZkQBgrMs2TRzJGbJUJNJA6Fc";
 
 // Variáveis de Ambiente configuradas no cofre do Render
 const GEMINI_KEY = process.env.GEMINI_API_KEY; 
@@ -122,10 +122,11 @@ ${historicoChat}
 Responda ao cliente (apenas a fala do François, sem prefixos):
 `;
             
+            console.log('🤖 Gerando resposta com o Gemini (gemini-2.0-flash)...');
             const response = await ai.models.generateContent({
-    model: 'gemini-1.5-flash',
-    contents: promptCompleto,
-});
+                model: 'gemini-2.0-flash',
+                contents: promptCompleto,
+            });
 
             const respostaIA = response.text || "Peço desculpas, tive uma breve hesitação. Como posso servi-lo?";
 
