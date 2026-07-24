@@ -1,14 +1,31 @@
 {
-  "name": "meu-bot-whatsapp",
+  "name": "francois-bot",
   "version": "1.0.0",
-  "description": "Bot de WhatsApp para o Nany's Coffee Break",
+  "description": "Assistente Virtual François - Nany's Coffee Break",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.6.0",
-    "@google/genai": "latest",
-    "qrcode-terminal": "^0.12.0"
+    "@google/genai": "^0.1.1",
+    "@whiskeysockets/baileys": "^6.7.9"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}{
+  "name": "francois-bot",
+  "version": "1.0.0",
+  "description": "Assistente Virtual François - Nany's Coffee Break",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@google/genai": "^0.1.1",
+    "@whiskeysockets/baileys": "^6.7.9"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
